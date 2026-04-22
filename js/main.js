@@ -523,6 +523,23 @@ function gerarArame(comandos, incluirBaseInfinita = true) {
 // ==========================================
 // 4. MODO CAD E MODO CAM
 // ==========================================
+function calcularZAcumulado(lista) {
+    // Calcula o Z acumulado após o último corte
+    let totalZ = 0;
+    for(let c of lista) {
+        if(c.tipo === 'corte') totalZ = 0;
+        else totalZ += (c.z || 0);
+    }
+    return totalZ;
+}
+
+function aplicarRotacaoMaquinaZ(grausZ) {
+    // A máquina roda em torno do eixo X da cena (eixo de saída do arame)
+    // A rotação base da máquina é -PI/2 (para orientar corretamente)
+    // Adiciona a rotação Z do eixo CNC (em graus) à rotação base
+    grupoMaquinaCompleta.rotation.x = -Math.PI / 2 + (grausZ * Math.PI / 180);
+}
+
 function atualizarCenaCAD() {
     if (simulandoVideo) return;
     if (arameVisivel) { cena.remove(arameVisivel); arameVisivel = null; }
@@ -531,15 +548,14 @@ function atualizarCenaCAD() {
     arameVisivel = gerarArame(memoriaCNC, true);
     arameVisivel.position.set(AFINACAO_FERRAMENTA_Z, AFINACAO_FERRAMENTA_Y, 0); 
     
-    let totalZ = 0;
-    for(let c of memoriaCNC) {
-        if(c.tipo === 'corte') totalZ = 0;
-        else totalZ += (c.z || 0);
-    }
+    let totalZ = calcularZAcumulado(memoriaCNC);
     arameVisivel.rotation.x = (totalZ * Math.PI) / 180;
     cena.add(arameVisivel);
 
-    // Reset à máquina
+    // Máquina acompanha a rotação Z acumulada
+    aplicarRotacaoMaquinaZ(totalZ);
+
+    // Reset aos outros eixos da máquina
     grupoCorte.position.z = 0;                    
     grupoCarroMovel.position.z = window.ALTURA_REPOUSO;  
     grupoCarroFixo.position.y = 0;               
@@ -547,7 +563,7 @@ function atualizarCenaCAD() {
     simRotBase = 0;
 }
 
-function atualizarCenaSimulacaoFrame(cmdsFrame, posZ, posU, posY, posR) {
+function atualizarCenaSimulacaoFrame(cmdsFrame, posZ, posU, posY, posR, posZMaquina) {
     if (!simulandoVideo) return;
     if (arameSimulacao) cena.remove(arameSimulacao);
 
@@ -555,6 +571,10 @@ function atualizarCenaSimulacaoFrame(cmdsFrame, posZ, posU, posY, posR) {
     arameSimulacao.position.set(AFINACAO_FERRAMENTA_Z, AFINACAO_FERRAMENTA_Y, 0); 
     arameSimulacao.rotation.x = (posZ * Math.PI) / 180;
     cena.add(arameSimulacao);
+
+    // Rotação Z da máquina completa (eixo de rolamento do arame)
+    let zMaq = (posZMaquina !== undefined) ? posZMaquina : posZ;
+    aplicarRotacaoMaquinaZ(zMaq);
 
     // Movimento 3D da Máquina
     grupoCarroMovel.position.z = posU; 
@@ -609,6 +629,10 @@ async function esperar(ms) {
     while (isPaused) await new Promise(resolve => setTimeout(resolve, 100));
 }
 
+// simZ = acumulado Z do arame (graus, para rotação do arame e da máquina)
+// simZMaquina = valor atual durante animação Z (para interpolação)
+// simR = posição do eixo R (carro fixo Y)
+// simRotBase = rotação da ferramenta (eixo Y/braco)
 let simZ = 0, simR = 0, simRotBase = 0; 
 
 async function simularPassoCNC(cmdTarget, memoriaAteAgora) {
@@ -622,50 +646,56 @@ async function simularPassoCNC(cmdTarget, memoriaAteAgora) {
     let stepZ = Math.max(0.1, 180 * (16/1000) * multi);
     let stepX = Math.max(0.1, 100 * (16/1000) * multi);
 
+    // --- EIXO Z: Roda máquina e arame em torno do eixo de saída do arame ---
     if (cmdTarget.z !== 0) {
         let maxZ = Math.abs(cmdTarget.z);
+        let sinalZ = Math.sign(cmdTarget.z);
         for(let i=stepZ; i<=maxZ; i+=stepZ) {
-            cmdTemp.z = i * Math.sign(cmdTarget.z);
-            atualizarCenaSimulacaoFrame(cmdsFrame, simZ + cmdTemp.z, window.ALTURA_REPOUSO, simRotBase, simR);
+            cmdTemp.z = i * sinalZ;
+            // posZMaquina = Z acumulado da máquina já confirmado + incremento atual
+            atualizarCenaSimulacaoFrame(cmdsFrame, simZ + cmdTemp.z, window.ALTURA_REPOUSO, simRotBase, simR, simZ + cmdTemp.z);
             await esperar(16);
         }
         cmdTemp.z = cmdTarget.z;
-        atualizarCenaSimulacaoFrame(cmdsFrame, simZ + cmdTarget.z, window.ALTURA_REPOUSO, simRotBase, simR);
+        atualizarCenaSimulacaoFrame(cmdsFrame, simZ + cmdTarget.z, window.ALTURA_REPOUSO, simRotBase, simR, simZ + cmdTarget.z);
     }
     simZ += cmdTarget.z;
 
+    // --- EIXO X: Avanço do arame ---
     if (cmdTarget.x !== 0) {
         let maxX = Math.abs(cmdTarget.x);
         for(let i=stepX; i<=maxX; i+=stepX) {
             cmdTemp.x = i * Math.sign(cmdTarget.x);
-            atualizarCenaSimulacaoFrame(cmdsFrame, simZ, window.ALTURA_REPOUSO, simRotBase, simR);
+            atualizarCenaSimulacaoFrame(cmdsFrame, simZ, window.ALTURA_REPOUSO, simRotBase, simR, simZ);
             await esperar(16);
         }
         cmdTemp.x = cmdTarget.x;
-        atualizarCenaSimulacaoFrame(cmdsFrame, simZ, window.ALTURA_REPOUSO, simRotBase, simR);
+        atualizarCenaSimulacaoFrame(cmdsFrame, simZ, window.ALTURA_REPOUSO, simRotBase, simR, simZ);
     }
 
+    // --- EIXO D: Dobragem ---
     if (cmdTarget.d !== 0) {
         let dir = Math.sign(cmdTarget.d);
         
         let targetR = (dir > 0) ? window.AFINACAO_R_DIR : window.AFINACAO_R_ESQ; 
         let startRotBase = (dir > 0) ? 90 : -90; 
 
+        // 2. Posiciona R e Y em simultâneo
         if (Math.abs(targetR - simR) > 0 || Math.abs(startRotBase - simRotBase) > 0) {
             let steps = 15;
             for(let i=1; i<=steps; i++) {
-                atualizarCenaSimulacaoFrame(cmdsFrame, simZ, window.ALTURA_REPOUSO, simRotBase + ((startRotBase - simRotBase) * (i/steps)), simR + ((targetR - simR) * (i/steps))); 
+                atualizarCenaSimulacaoFrame(cmdsFrame, simZ, window.ALTURA_REPOUSO, simRotBase + ((startRotBase - simRotBase) * (i/steps)), simR + ((targetR - simR) * (i/steps)), simZ); 
                 await esperar(16);
             }
             simR = targetR; simRotBase = startRotBase;
         }
         
-        // 3. SOBE
+        // 3. SOBE (eixo U)
         let distU = Math.abs(window.ALTURA_ENCAIXE - window.ALTURA_REPOUSO);
         let stepsU = 15;
         for(let i=1; i<=stepsU; i++) { 
             let u = window.ALTURA_REPOUSO + (distU * (i / stepsU));
-            atualizarCenaSimulacaoFrame(cmdsFrame, simZ, u, simRotBase, simR); await esperar(16);
+            atualizarCenaSimulacaoFrame(cmdsFrame, simZ, u, simRotBase, simR, simZ); await esperar(16);
         }
         
         // 4. DOBRAGEM EFETIVA 
@@ -676,29 +706,29 @@ async function simularPassoCNC(cmdTarget, memoriaAteAgora) {
         for(let i=1; i<=stepsDobra; i++) {
             let progresso = i / stepsDobra;
             cmdTemp.d = cmdTarget.d * progresso; 
-            atualizarCenaSimulacaoFrame(cmdsFrame, simZ, window.ALTURA_ENCAIXE, startRotBase + (totalRotacao * progresso), simR); 
+            atualizarCenaSimulacaoFrame(cmdsFrame, simZ, window.ALTURA_ENCAIXE, startRotBase + (totalRotacao * progresso), simR, simZ); 
             await esperar(16);
         }
         cmdTemp.d = cmdTarget.d; 
         simRotBase = endRotBase;
         await esperar(200); 
 
-        // 5. Alivio (Springback)
+        // 5. Alívio (Springback)
         let springback = -dir * 15;
         for(let i=1; i<=5; i++) {
-            atualizarCenaSimulacaoFrame(cmdsFrame, simZ, window.ALTURA_ENCAIXE, simRotBase + (springback * (i/5)), simR); await esperar(16);
+            atualizarCenaSimulacaoFrame(cmdsFrame, simZ, window.ALTURA_ENCAIXE, simRotBase + (springback * (i/5)), simR, simZ); await esperar(16);
         }
         simRotBase += springback;
 
-        // 6. DESCE
+        // 6. DESCE (eixo U)
         for(let i=1; i<=stepsU; i++) {
             let u = window.ALTURA_ENCAIXE - (distU * (i / stepsU));
-            atualizarCenaSimulacaoFrame(cmdsFrame, simZ, u, simRotBase, simR); await esperar(16);
+            atualizarCenaSimulacaoFrame(cmdsFrame, simZ, u, simRotBase, simR, simZ); await esperar(16);
         }
         
-        // 7. VOLTA AO CENTRO
+        // 7. VOLTA AO CENTRO (R e Y)
         for(let i=1; i<=15; i++) {
-             atualizarCenaSimulacaoFrame(cmdsFrame, simZ, window.ALTURA_REPOUSO, simRotBase - (simRotBase * (i/15)), simR - (simR * (i/15))); await esperar(16);
+             atualizarCenaSimulacaoFrame(cmdsFrame, simZ, window.ALTURA_REPOUSO, simRotBase - (simRotBase * (i/15)), simR - (simR * (i/15)), simZ); await esperar(16);
         }
         simR = 0; simRotBase = 0;
     }
@@ -717,8 +747,12 @@ async function simularQueda(memoriaAteAgora) {
     pedaco.rotation.x = (totalZ * Math.PI) / 180; pedaco.position.x = -DISTANCIA_CORTE; 
     
     if (arameSimulacao) cena.remove(arameSimulacao);
-    arameSimulacao = gerarArame([], true); arameSimulacao.rotation.x = (totalZ * Math.PI) / 180;
-    cena.add(arameSimulacao); cena.add(pedaco); 
+    // Novo arame (pedaço seguinte) começa com Z=0 (máquina vai resetar)
+    arameSimulacao = gerarArame([], true); arameSimulacao.rotation.x = 0;
+    cena.add(arameSimulacao); cena.add(pedaco);
+
+    // Máquina mantém a rotação Z do pedaço cortado durante o corte
+    aplicarRotacaoMaquinaZ(totalZ);
 
     for(let f=0; f<10; f++) { grupoCorte.position.z -= 1 * multi; await esperar(10); }
     let velY = 0;
@@ -726,7 +760,10 @@ async function simularQueda(memoriaAteAgora) {
         velY -= (0.6 * multi); pedaco.position.y += velY; pedaco.rotation.z += (0.02 * multi); pedaco.rotation.x += (0.01 * multi); 
         if(f < 10) grupoCorte.position.z += 1 * multi; await esperar(16);
     }
-    cena.remove(pedaco); grupoCorte.position.z = 0; 
+    cena.remove(pedaco); grupoCorte.position.z = 0;
+
+    // Máquina volta à posição Z=0 para o próximo pedaço
+    aplicarRotacaoMaquinaZ(0);
 }
 
 window.ExecutarAdicionar = function() {
