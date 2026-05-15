@@ -289,7 +289,7 @@ function atualizarEstatisticas() {
             
             if (cmd.d !== 0) {
                 let dir = Math.sign(cmd.d);
-                let targetR = (dir > 0) ? window.AFINACAO_R_DIR : window.AFINACAO_R_ESQ; 
+                let targetR = calcularTargetR(cmd.rolete, dir);
                 let startRotBase = (dir > 0) ? 90 : -90; 
 
                 if (simR_stat !== targetR || simRotBase_stat !== startRotBase) {
@@ -455,6 +455,33 @@ function posicionarRoletePreto(roleteAtivo) {
     let novaDist = raioNivel + diametroArame + (diametroRoletePreto / 2);
     meshRoletePreto.position.x = novaDist;
     distanciaRoletePreto = novaDist;
+}
+
+// Calibração de referência do eixo R (carro fixo verde).
+// AFINACAO_R_DIR/AFINACAO_R_ESQ foram medidas manualmente para o rolete
+// nível BAIXO (30 mm) com arame de 6 mm — i.e. raio efetivo de 18 mm.
+// Para outras configurações (rolete cima, arame de outro diâmetro) o raio
+// efetivo muda e o pivô de rotação tem de ser deslocado lateralmente para
+// que o rolete nível continue NO CENTRO da curvatura — caso contrário o
+// arame dobra "no ar", sem o rolete nível tocar nele.
+const REF_DIAM_ARAME = 6;
+const REF_DIAM_NIVEL_BAIXO = 30;
+function raioReferenciaR() {
+    return (REF_DIAM_NIVEL_BAIXO + REF_DIAM_ARAME) / 2; // 18 mm
+}
+// Raio efetivo da curvatura, com o rolete nível ativo e o arame correntes.
+function raioAtivoR(roleteAtivo) {
+    let diamNivel = (roleteAtivo === 'cima') ? diametroRoleteNivelCima : diametroRoleteNivelBaixo;
+    return (diamNivel + diametroArame) / 2;
+}
+// R alvo do eixo do carro fixo, ajustado geometricamente em função do
+// rolete ativo e do sentido da dobra. Mantém EXATAMENTE a calibração
+// existente para o rolete baixo + arame 6 mm; ajusta as restantes
+// combinações pela diferença geométrica de raio.
+function calcularTargetR(roleteAtivo, dir) {
+    let R_ref = (dir > 0) ? window.AFINACAO_R_DIR : window.AFINACAO_R_ESQ;
+    let delta = -dir * (raioAtivoR(roleteAtivo) - raioReferenciaR());
+    return R_ref + delta;
 }
 
 // ==========================================
@@ -723,7 +750,7 @@ async function simularPassoCNC(cmdTarget, memoriaAteAgora) {
     if (cmdTarget.d !== 0) {
         let dir = Math.sign(cmdTarget.d);
         
-        let targetR = (dir > 0) ? window.AFINACAO_R_DIR : window.AFINACAO_R_ESQ; 
+        let targetR = calcularTargetR(cmdTarget.rolete, dir);
         let startRotBase = (dir > 0) ? 90 : -90; 
 
         // 🔥 Define Altura do Carro em Z consoante o rolete que escolhemos!
@@ -877,7 +904,7 @@ window.ExecutarExportarNC = function() {
         if (cmd.z !== 0) { expZ += cmd.z; textoCNC += `(0,${fmt(expRotBase)},${fmt(expZ)},${fmt(expR)},${fmt(expU)},${fmt(vx)},${fmt(vy)},${fmt(vz)},${fmt(vr)},${fmt(vu)})\n`; }
         if (cmd.d !== 0) {
             let dir = Math.sign(cmd.d); 
-            let targetR = (dir > 0) ? window.AFINACAO_R_DIR : window.AFINACAO_R_ESQ; 
+            let targetR = calcularTargetR(cmd.rolete, dir);
             let startRotBase = (dir > 0) ? 90 : -90;
             
             if (expR !== targetR || expRotBase !== startRotBase) {
