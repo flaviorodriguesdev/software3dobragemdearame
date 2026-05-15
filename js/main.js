@@ -5,7 +5,9 @@ let cena, camara, renderizador, controlos;
 let diametroArame = 6;
 let RaioCurvatura = 15;  
 
-let diametroRoleteNivelCima = 30;
+// 🔥 DEFINIÇÃO DOS DOIS ROLETES
+let diametroRoleteNivelCima = 10;
+let diametroRoleteNivelBaixo = 30;
 let diametroRoletePreto = 20; 
 let distanciaRoletePreto = 28;
 
@@ -52,8 +54,11 @@ document.addEventListener('DOMContentLoaded', function() {
     if (menuInicial && !document.getElementById('input-rolete-preto')) {
         let htmlFerramentas = `
             <div style="margin-top:15px; margin-bottom: 15px; border-top:1px solid #30363d; padding-top:15px;">
-                <label style="display:block; color:#8b949e; font-size:12px; margin-bottom:5px;">DIÂMETRO DO ROLETE NÍVEL CIMA (MM):</label>
-                <input type="number" id="input-rolete-nivel-cima" value="30" style="width:100%; padding:10px; background:#0d1117; border:1px solid #30363d; color:#c9d1d9; border-radius:4px; margin-bottom:10px; outline:none;">
+                <label style="display:block; color:#8b949e; font-size:12px; margin-bottom:5px;">DIÂMETRO DO ROLETE NÍVEL CIMA (MM) - Apertado:</label>
+                <input type="number" id="input-rolete-nivel-cima" value="10" style="width:100%; padding:10px; background:#0d1117; border:1px solid #30363d; color:#c9d1d9; border-radius:4px; margin-bottom:10px; outline:none;">
+                
+                <label style="display:block; color:#8b949e; font-size:12px; margin-bottom:5px;">DIÂMETRO DO ROLETE NÍVEL BAIXO (MM) - Aberto:</label>
+                <input type="number" id="input-rolete-nivel-baixo" value="30" style="width:100%; padding:10px; background:#0d1117; border:1px solid #30363d; color:#c9d1d9; border-radius:4px; margin-bottom:10px; outline:none;">
                 
                 <label style="display:block; color:#8b949e; font-size:12px; margin-bottom:5px;">DIÂMETRO DO ROLETE PRETO (MM):</label>
                 <input type="number" id="input-rolete-preto" value="20" style="width:100%; padding:10px; background:#0d1117; border:1px solid #30363d; color:#c9d1d9; border-radius:4px; margin-bottom:10px; outline:none;">
@@ -70,25 +75,34 @@ document.addEventListener('DOMContentLoaded', function() {
         }
     }
 
+    // Injeta a Escolha do Rolete ao lado dos comandos manuais
+    let btnAdicionar = document.getElementById('btn-adicionar');
+    if (btnAdicionar && !document.getElementById('input-rolete-ativo')) {
+        let divSelect = document.createElement('div');
+        divSelect.style.marginBottom = "10px";
+        divSelect.innerHTML = `
+            <div style="display:flex; justify-content:space-between; align-items:center;">
+                <label style="font-size: 11px; color: #8b949e; font-weight:bold;">ROLETE ATIVO:</label>
+                <select id="input-rolete-ativo" style="width: 140px; padding: 5px; background: #0d1117; border: 1px solid #30363d; color: #c9d1d9; border-radius: 4px; outline: none; font-size: 12px; font-weight:bold; cursor: pointer;">
+                    <option value="cima">👆 Cima (10mm)</option>
+                    <option value="baixo" selected>👇 Baixo (30mm)</option>
+                </select>
+            </div>
+        `;
+        btnAdicionar.parentNode.insertBefore(divSelect, btnAdicionar);
+    }
+
     const btnIniciar = document.getElementById('btn-iniciar'); 
     if(btnIniciar) {
         btnIniciar.addEventListener('click', function() {
             const inputD = document.getElementById('input-diametro');
             if (inputD) diametroArame = parseFloat(inputD.value);
             
-            const inputC = document.getElementById('input-curvatura');
-            if (inputC) {
-                let diametroMatriz = parseFloat(inputC.value);
-                if (diametroMatriz > 30) {
-                    alert("Aviso: O diâmetro da matriz não pode ultrapassar os 30 mm!");
-                    inputC.value = 30; 
-                    return; 
-                }
-                RaioCurvatura = diametroMatriz / 2;
-            }
-
             const inputRNC = document.getElementById('input-rolete-nivel-cima');
-            if (inputRNC) diametroRoleteNivelCima = parseFloat(inputRNC.value) || 30;
+            if (inputRNC) diametroRoleteNivelCima = parseFloat(inputRNC.value) || 10;
+
+            const inputRNB = document.getElementById('input-rolete-nivel-baixo');
+            if (inputRNB) diametroRoleteNivelBaixo = parseFloat(inputRNB.value) || 30;
 
             const inputRP = document.getElementById('input-rolete-preto');
             if (inputRP) diametroRoletePreto = parseFloat(inputRP.value) || 20;
@@ -244,7 +258,9 @@ function atualizarEstatisticas() {
             let avanco = cmd.x || 0; 
             let dobra = Math.abs(cmd.d || 0);
             
-            let raioCentro = RaioCurvatura + (diametroArame / 2);
+            // Escolhe raio central baseado no rolete ativo
+            let raioRolete = (cmd.rolete === 'cima') ? diametroRoleteNivelCima / 2 : diametroRoleteNivelBaixo / 2;
+            let raioCentro = raioRolete + (diametroArame / 2);
             totalArame += (avanco + (dobra * Math.PI / 180) * raioCentro);
 
             let vx = cmd.vx || parseFloat(document.getElementById('v-x')?.value) || 100;
@@ -311,7 +327,7 @@ function iniciar3D() {
     let luz2 = new THREE.DirectionalLight(0xffffff, 0.4); luz2.position.set(-1000, -1000, 1000); cena.add(luz2);
 
     const bolaDobra = new THREE.Mesh(new THREE.SphereGeometry(3, 32, 32), new THREE.MeshBasicMaterial({ color: 0xff0000 }));
-    bolaDobra.position.set(0, 0, 0); // 🔥 Corrigido para 0, 0, 0 para passar no centro
+    bolaDobra.position.set(AFINACAO_FERRAMENTA_Z, AFINACAO_FERRAMENTA_Y, 0); 
     cena.add(bolaDobra);
 
     cena.add(grupoMaquinaCompleta); 
@@ -321,7 +337,7 @@ function iniciar3D() {
     grupoCarroFixo.add(grupoCarroMovel);
     grupoCarroMovel.add(grupoFerramenta);
 
-    // MÁQUINA FIXADA NOS -408
+    // MÁQUINA FIXADA NOS -408 e -30
     grupoMaquinaCompleta.rotation.set(-Math.PI / 2, 0, 0); 
     grupoMaquinaCompleta.position.set(-408, -30, 0); 
 
@@ -340,7 +356,7 @@ function iniciar3D() {
                 if (eFerramentaGiratoria) {
                     let caixa = new THREE.Box3().setFromObject(obj);
                     let centro = caixa.getCenter(new THREE.Vector3());
-                    // Pivô de rotação = centro do rolete nível (não o centro da bbox do OBJ)
+                    // Pivô de rotação = centro do rolete nível
                     let pivot = new THREE.Vector3(centro.x, centro.y, centro.z + ALTURA_BASE_ROLETES);
                     obj.position.sub(pivot);
                     grupoPai.position.copy(pivot);
@@ -361,19 +377,20 @@ function iniciar3D() {
 
     const ALTURA_BASE_ROLETES = 20; 
 
-    // ROLETES ESCALADOS PELOS VALORES DA UI
+    // 🔥 ROLETE BAIXO (Aberto - 30mm por defeito)
     carregadorSTL.load('./modelos/STL/RoleteNivel.STL', (geo) => { 
         let mesh = new THREE.Mesh(geo, matMetalBrilhante); 
-        let escalaMatriz = (RaioCurvatura * 2) / 30;
+        let escalaMatriz = diametroRoleteNivelBaixo / 30; // Scale baseada em 30mm
         mesh.scale.set(escalaMatriz, 1, escalaMatriz);
         mesh.rotation.set(-Math.PI / 2, 0, 0); 
         mesh.position.set(0, 0, 0); // pivô = centro do rolete nível
         grupoFerramenta.add(mesh); 
     });
 
+    // 🔥 ROLETE CIMA (Apertado - 10mm por defeito)
     carregadorSTL.load('./modelos/STL/RoleteNivel.STL', (geo) => { 
         let mesh = new THREE.Mesh(geo, matAcoEscuro); 
-        let escalaCima = diametroRoleteNivelCima / 30;
+        let escalaCima = diametroRoleteNivelCima / 30; // Scale baseada em 30mm
         mesh.scale.set(escalaCima, 1, escalaCima); 
         mesh.rotation.set(-Math.PI / 2, 0, 0); 
         mesh.position.set(0, 0, 8); // 8 acima do rolete nível base
@@ -407,7 +424,7 @@ function animar() {
 }
 
 // ==========================================
-// 3. FÍSICA DO ARAME (LÓGICA INVERTIDA A PEDIDO)
+// 3. FÍSICA DO ARAME
 // ==========================================
 function getDiametroSeguro() { return (typeof diametroArame !== 'undefined' && diametroArame > 0) ? (diametroArame / 1.5) : 4; }
 
@@ -443,7 +460,6 @@ function preProcessCommands(comandos) {
 function gerarArame(comandos, incluirBaseInfinita = true) {
     let mat = new THREE.MeshPhongMaterial({ color: 0x8ab4f8, shininess: 100 }); 
     let root = new THREE.Group(); 
-    let raioCentro = RaioCurvatura + (diametroArame / 2); 
     let d = getDiametroSeguro();
 
     let proc = preProcessCommands(comandos);
@@ -452,6 +468,10 @@ function gerarArame(comandos, incluirBaseInfinita = true) {
 
     for (let i = 0; i < proc.cmds.length; i++) {
         let cmd = proc.cmds[i];
+        
+        // Define o raioCentro a usar com base no rolete escolhido na listagem!
+        let raioRolete = (cmd.rolete === 'cima') ? (diametroRoleteNivelCima / 2) : (diametroRoleteNivelBaixo / 2);
+        let raioCentro = raioRolete + (diametroArame / 2);
 
         if (cmd.x !== 0) {
             let gX = new THREE.Group();
@@ -524,7 +544,6 @@ function gerarArame(comandos, incluirBaseInfinita = true) {
 // 4. MODO CAD E MODO CAM
 // ==========================================
 function calcularZAcumulado(lista) {
-    // Calcula o Z acumulado após o último corte
     let totalZ = 0;
     for(let c of lista) {
         if(c.tipo === 'corte') totalZ = 0;
@@ -534,9 +553,6 @@ function calcularZAcumulado(lista) {
 }
 
 function aplicarRotacaoMaquinaZ(grausZ) {
-    // A máquina roda em torno do eixo X da cena (eixo de saída do arame)
-    // A rotação base da máquina é -PI/2 (para orientar corretamente)
-    // Adiciona a rotação Z do eixo CNC (em graus) à rotação base
     grupoMaquinaCompleta.rotation.x = -Math.PI / 2 + (grausZ * Math.PI / 180);
 }
 
@@ -546,16 +562,14 @@ function atualizarCenaCAD() {
     if (arameSimulacao) { cena.remove(arameSimulacao); arameSimulacao = null; }
 
     arameVisivel = gerarArame(memoriaCNC, true);
-    arameVisivel.position.set(0, 0, 0); // 🔥 Corrigido para 0, 0, 0 para passar no centro
+    arameVisivel.position.set(AFINACAO_FERRAMENTA_Z, AFINACAO_FERRAMENTA_Y, 0); 
     
     let totalZ = calcularZAcumulado(memoriaCNC);
     arameVisivel.rotation.x = (totalZ * Math.PI) / 180;
     cena.add(arameVisivel);
 
-    // Máquina acompanha a rotação Z acumulada
     aplicarRotacaoMaquinaZ(totalZ);
 
-    // Reset aos outros eixos da máquina
     grupoCorte.position.z = 0;                    
     grupoCarroMovel.position.z = window.ALTURA_REPOUSO;  
     grupoCarroFixo.position.y = 0;               
@@ -568,15 +582,13 @@ function atualizarCenaSimulacaoFrame(cmdsFrame, posZ, posU, posY, posR, posZMaqu
     if (arameSimulacao) cena.remove(arameSimulacao);
 
     arameSimulacao = gerarArame(cmdsFrame, true);
-    arameSimulacao.position.set(0, 0, 0); // 🔥 Corrigido para 0, 0, 0 para passar no centro
+    arameSimulacao.position.set(AFINACAO_FERRAMENTA_Z, AFINACAO_FERRAMENTA_Y, 0); 
     arameSimulacao.rotation.x = (posZ * Math.PI) / 180;
     cena.add(arameSimulacao);
 
-    // Rotação Z da máquina completa (eixo de rolamento do arame)
     let zMaq = (posZMaquina !== undefined) ? posZMaquina : posZ;
     aplicarRotacaoMaquinaZ(zMaq);
 
-    // Movimento 3D da Máquina
     grupoCarroMovel.position.z = posU; 
     grupoCarroFixo.position.y = posR; 
     grupoFerramenta.rotation.z = (posY * Math.PI) / 180; 
@@ -589,6 +601,7 @@ function lerInputsSeguro() {
         x: getVal(['input-x']), 
         z: getVal(['input-z']), 
         d: getVal(['input-d']),
+        rolete: document.getElementById('input-rolete-ativo') ? document.getElementById('input-rolete-ativo').value : 'baixo',
         vx: parseFloat(document.getElementById('v-x')?.value) || 100,
         vy: parseFloat(document.getElementById('v-y')?.value) || 150,
         vz: parseFloat(document.getElementById('v-z')?.value) || 180,
@@ -620,7 +633,7 @@ function validarAcessoDobragem(cmd) {
 }
 
 // ==========================================
-// 5. O CÉREBRO DA SIMULAÇÃO (FÍSICA ESPELHADA)
+// 5. O CÉREBRO DA SIMULAÇÃO
 // ==========================================
 
 async function esperar(ms) {
@@ -629,10 +642,6 @@ async function esperar(ms) {
     while (isPaused) await new Promise(resolve => setTimeout(resolve, 100));
 }
 
-// simZ = acumulado Z do arame (graus, para rotação do arame e da máquina)
-// simZMaquina = valor atual durante animação Z (para interpolação)
-// simR = posição do eixo R (carro fixo Y)
-// simRotBase = rotação da ferramenta (eixo Y/braco)
 let simZ = 0, simR = 0, simRotBase = 0; 
 
 async function simularPassoCNC(cmdTarget, memoriaAteAgora) {
@@ -646,13 +655,12 @@ async function simularPassoCNC(cmdTarget, memoriaAteAgora) {
     let stepZ = Math.max(0.1, 180 * (16/1000) * multi);
     let stepX = Math.max(0.1, 100 * (16/1000) * multi);
 
-    // --- EIXO Z: Roda máquina e arame em torno do eixo de saída do arame ---
+    // --- EIXO Z ---
     if (cmdTarget.z !== 0) {
         let maxZ = Math.abs(cmdTarget.z);
         let sinalZ = Math.sign(cmdTarget.z);
         for(let i=stepZ; i<=maxZ; i+=stepZ) {
             cmdTemp.z = i * sinalZ;
-            // posZMaquina = Z acumulado da máquina já confirmado + incremento atual
             atualizarCenaSimulacaoFrame(cmdsFrame, simZ + cmdTemp.z, window.ALTURA_REPOUSO, simRotBase, simR, simZ + cmdTemp.z);
             await esperar(16);
         }
@@ -661,7 +669,7 @@ async function simularPassoCNC(cmdTarget, memoriaAteAgora) {
     }
     simZ += cmdTarget.z;
 
-    // --- EIXO X: Avanço do arame ---
+    // --- EIXO X ---
     if (cmdTarget.x !== 0) {
         let maxX = Math.abs(cmdTarget.x);
         for(let i=stepX; i<=maxX; i+=stepX) {
@@ -673,14 +681,18 @@ async function simularPassoCNC(cmdTarget, memoriaAteAgora) {
         atualizarCenaSimulacaoFrame(cmdsFrame, simZ, window.ALTURA_REPOUSO, simRotBase, simR, simZ);
     }
 
-    // --- EIXO D: Dobragem ---
+    // --- EIXO D ---
     if (cmdTarget.d !== 0) {
         let dir = Math.sign(cmdTarget.d);
         
         let targetR = (dir > 0) ? window.AFINACAO_R_DIR : window.AFINACAO_R_ESQ; 
         let startRotBase = (dir > 0) ? 90 : -90; 
 
-        // 2. Posiciona R e Y em simultâneo
+        // 🔥 Define Altura do Carro em Z consoante o rolete que escolhemos!
+        // O rolete de cima está fisicamente 8mm acima do rolete de baixo na montagem
+        let alturaTrabalhoU = (cmdTarget.rolete === 'cima') ? window.ALTURA_ENCAIXE - 8 : window.ALTURA_ENCAIXE;
+
+        // 2. Posiciona R e Y
         if (Math.abs(targetR - simR) > 0 || Math.abs(startRotBase - simRotBase) > 0) {
             let steps = 15;
             for(let i=1; i<=steps; i++) {
@@ -690,15 +702,15 @@ async function simularPassoCNC(cmdTarget, memoriaAteAgora) {
             simR = targetR; simRotBase = startRotBase;
         }
         
-        // 3. SOBE (eixo U)
-        let distU = Math.abs(window.ALTURA_ENCAIXE - window.ALTURA_REPOUSO);
+        // 3. SOBE Eixo U 
+        let distU = Math.abs(alturaTrabalhoU - window.ALTURA_REPOUSO);
         let stepsU = 15;
         for(let i=1; i<=stepsU; i++) { 
             let u = window.ALTURA_REPOUSO + (distU * (i / stepsU));
             atualizarCenaSimulacaoFrame(cmdsFrame, simZ, u, simRotBase, simR, simZ); await esperar(16);
         }
         
-        // 4. DOBRAGEM EFETIVA 
+        // 4. DOBRAGEM
         let endRotBase = dir * (90 - Math.abs(cmdTarget.d) * window.VARREDURA_PRETO); 
         let totalRotacao = endRotBase - startRotBase; 
         
@@ -706,27 +718,28 @@ async function simularPassoCNC(cmdTarget, memoriaAteAgora) {
         for(let i=1; i<=stepsDobra; i++) {
             let progresso = i / stepsDobra;
             cmdTemp.d = cmdTarget.d * progresso; 
-            atualizarCenaSimulacaoFrame(cmdsFrame, simZ, window.ALTURA_ENCAIXE, startRotBase + (totalRotacao * progresso), simR, simZ); 
+            cmdTemp.rolete = cmdTarget.rolete; // Guarda rolete para animação ver o raio certo
+            atualizarCenaSimulacaoFrame(cmdsFrame, simZ, alturaTrabalhoU, startRotBase + (totalRotacao * progresso), simR, simZ); 
             await esperar(16);
         }
         cmdTemp.d = cmdTarget.d; 
         simRotBase = endRotBase;
         await esperar(200); 
 
-        // 5. Alívio (Springback)
+        // 5. Springback
         let springback = -dir * 15;
         for(let i=1; i<=5; i++) {
-            atualizarCenaSimulacaoFrame(cmdsFrame, simZ, window.ALTURA_ENCAIXE, simRotBase + (springback * (i/5)), simR, simZ); await esperar(16);
+            atualizarCenaSimulacaoFrame(cmdsFrame, simZ, alturaTrabalhoU, simRotBase + (springback * (i/5)), simR, simZ); await esperar(16);
         }
         simRotBase += springback;
 
-        // 6. DESCE (eixo U)
+        // 6. DESCE Eixo U
         for(let i=1; i<=stepsU; i++) {
-            let u = window.ALTURA_ENCAIXE - (distU * (i / stepsU));
+            let u = alturaTrabalhoU - (distU * (i / stepsU));
             atualizarCenaSimulacaoFrame(cmdsFrame, simZ, u, simRotBase, simR, simZ); await esperar(16);
         }
         
-        // 7. VOLTA AO CENTRO (R e Y)
+        // 7. VOLTA AO CENTRO
         for(let i=1; i<=15; i++) {
              atualizarCenaSimulacaoFrame(cmdsFrame, simZ, window.ALTURA_REPOUSO, simRotBase - (simRotBase * (i/15)), simR - (simR * (i/15)), simZ); await esperar(16);
         }
@@ -745,17 +758,13 @@ async function simularQueda(memoriaAteAgora) {
     let pedaco = gerarArame(memoriaAteAgora, false); 
     let totalZ = 0; for(let c of memoriaAteAgora) totalZ += (c.z || 0);
     pedaco.rotation.x = (totalZ * Math.PI) / 180; 
-    // 🔥 Corrigido para 0 para passar no centro
-    pedaco.position.set(-DISTANCIA_CORTE, 0, 0); 
+    pedaco.position.set(-DISTANCIA_CORTE, AFINACAO_FERRAMENTA_Y, AFINACAO_FERRAMENTA_Z); 
     
     if (arameSimulacao) cena.remove(arameSimulacao);
-    // Novo arame (pedaço seguinte) começa com Z=0 (máquina vai resetar)
     arameSimulacao = gerarArame([], true); arameSimulacao.rotation.x = 0;
-    // 🔥 Corrigido para 0 para passar no centro
-    arameSimulacao.position.set(0, 0, 0); 
+    arameSimulacao.position.set(AFINACAO_FERRAMENTA_Z, AFINACAO_FERRAMENTA_Y, 0); 
     cena.add(arameSimulacao); cena.add(pedaco);
 
-    // Máquina mantém a rotação Z do pedaço cortado durante o corte
     aplicarRotacaoMaquinaZ(totalZ);
 
     for(let f=0; f<10; f++) { grupoCorte.position.z -= 1 * multi; await esperar(10); }
@@ -766,7 +775,6 @@ async function simularQueda(memoriaAteAgora) {
     }
     cena.remove(pedaco); grupoCorte.position.z = 0;
 
-    // Máquina volta à posição Z=0 para o próximo pedaço
     aplicarRotacaoMaquinaZ(0);
 }
 
@@ -830,7 +838,10 @@ window.ExecutarExportarNC = function() {
                 expR = targetR; expRotBase = startRotBase;
                 textoCNC += `(0,${fmt(expRotBase)},${fmt(expZ)},${fmt(expR)},${fmt(expU)},${fmt(vx)},${fmt(vy)},${fmt(vz)},${fmt(vr)},${fmt(vu)})\n`;
             }
-            expU = window.ALTURA_ENCAIXE; textoCNC += `(0,${fmt(expRotBase)},${fmt(expZ)},${fmt(expR)},${fmt(expU)},${fmt(vx)},${fmt(vy)},${fmt(vz)},${fmt(vr)},${fmt(vu)})\n`;
+            
+            // O G-Code também tem de descer o eixo U consoante o rolete ativo!
+            expU = (cmd.rolete === 'cima') ? window.ALTURA_ENCAIXE - 8 : window.ALTURA_ENCAIXE; 
+            textoCNC += `(0,${fmt(expRotBase)},${fmt(expZ)},${fmt(expR)},${fmt(expU)},${fmt(vx)},${fmt(vy)},${fmt(vz)},${fmt(vr)},${fmt(vu)})\n`;
             
             let anguloMaquina = dir * (90 - Math.abs(cmd.d) * window.VARREDURA_PRETO); 
             
@@ -875,7 +886,8 @@ function desenharListaSegura() {
     const listaHtml = document.getElementById('lista-comandos');
     if (!listaHtml) return; listaHtml.innerHTML = '';
     memoriaCNC.forEach((c, i) => {
-        let txt = c.tipo === 'corte' ? "✂️ CORTAR ARAME" : `X:${c.x} Z:${c.z}º D:${c.d}º <span style="font-size:10px; color:#8b949e;">[V: ${c.vx||100}, ${c.vy||150}, ${c.vz||180}, ${c.vu||60}, ${c.vr||80}]</span>`;
+        let iconeRolete = c.rolete === 'cima' ? '👆' : '👇';
+        let txt = c.tipo === 'corte' ? "✂️ CORTAR ARAME" : `X:${c.x} Z:${c.z}º D:${c.d}º ${iconeRolete} <span style="font-size:10px; color:#8b949e;">[V: ${c.vx||100}, ${c.vy||150}, ${c.vz||180}, ${c.vu||60}, ${c.vr||80}]</span>`;
         listaHtml.innerHTML += `<div class="linha-comando"><span>N${i+1} ${txt}</span> <span class="remover" onclick="removerLinha(${i})">✖</span></div>`;
     });
     listaHtml.scrollTop = listaHtml.scrollHeight;
