@@ -9,7 +9,15 @@ let RaioCurvatura = 15;
 let diametroRoleteNivelCima = 10;
 let diametroRoleteNivelBaixo = 30;
 let diametroRoletePreto = 20; 
-let distanciaRoletePreto = 28;
+// distanciaRoletePreto é AGORA derivada da geometria do rolete nível ativo
+// (raio_nivel + diametroArame + raio_preto). Mantida como cache do último valor aplicado.
+let distanciaRoletePreto = 31;
+
+// Distância entre o pivô da ferramenta e a base dos roletes nível (usada para posicionar o pivô de rotação)
+const ALTURA_BASE_ROLETES = 20;
+
+// Referência ao mesh do rolete preto para reposicionamento dinâmico
+let meshRoletePreto = null;
 
 // NOVOS GRUPOS DA MÁQUINA (Árvore Cinemática)
 let grupoMaquinaCompleta = new THREE.Group(); 
@@ -62,9 +70,10 @@ document.addEventListener('DOMContentLoaded', function() {
                 
                 <label style="display:block; color:#8b949e; font-size:12px; margin-bottom:5px;">DIÂMETRO DO ROLETE PRETO (MM):</label>
                 <input type="number" id="input-rolete-preto" value="20" style="width:100%; padding:10px; background:#0d1117; border:1px solid #30363d; color:#c9d1d9; border-radius:4px; margin-bottom:10px; outline:none;">
-                
-                <label style="display:block; color:#8b949e; font-size:12px; margin-bottom:5px;">DISTÂNCIA DO ROLETE PRETO AO CENTRO (MM):</label>
-                <input type="number" id="input-distancia-preto" value="28" style="width:100%; padding:10px; background:#0d1117; border:1px solid #30363d; color:#c9d1d9; border-radius:4px; outline:none;">
+
+                <div style="font-size:11px; color:#8b949e; line-height:1.4; padding:8px 10px; background:#0d1117; border:1px solid #30363d; border-radius:4px;">
+                    A <b style="color:#c9d1d9;">distância do rolete preto ao centro</b> é calculada automaticamente em função do rolete nível ativo, do diâmetro do arame e do diâmetro do rolete preto, garantindo contacto real durante a dobragem.
+                </div>
             </div>
         `;
         let btnIniciar = document.getElementById('btn-iniciar');
@@ -106,9 +115,6 @@ document.addEventListener('DOMContentLoaded', function() {
 
             const inputRP = document.getElementById('input-rolete-preto');
             if (inputRP) diametroRoletePreto = parseFloat(inputRP.value) || 20;
-
-            const inputDistP = document.getElementById('input-distancia-preto');
-            if (inputDistP) distanciaRoletePreto = parseFloat(inputDistP.value) || 28;
             
             document.getElementById('menu-inicial').style.display = 'none';
             document.getElementById('simulador-container').style.display = 'flex';
@@ -120,6 +126,15 @@ document.addEventListener('DOMContentLoaded', function() {
     document.getElementById('btn-corte').onclick = window.ExecutarCorte;
     document.getElementById('btn-play').onclick = window.ExecutarPlay;
     document.getElementById('btn-limpar').onclick = window.ExecutarLimpar;
+
+    // Quando se troca o rolete ativo no painel manual, o rolete preto reposiciona-se
+    // em tempo real para a distância de contacto certa (visualização CAD).
+    const dropRoleteAtivo = document.getElementById('input-rolete-ativo');
+    if (dropRoleteAtivo) {
+        dropRoleteAtivo.addEventListener('change', function() {
+            if (!simulandoVideo) posicionarRoletePreto(getRoleteAtivoUI());
+        });
+    }
 
     const btnPause = document.getElementById('btn-pause');
     if(btnPause) {
@@ -375,8 +390,6 @@ function iniciar3D() {
     carregarPecaComCores('PecaCimaBaixo', grupoCarroMovel);
     carregarPecaComCores('FerramentaDobrar', grupoFerramenta, true);
 
-    const ALTURA_BASE_ROLETES = 20; 
-
     // 🔥 ROLETE BAIXO (Aberto - 30mm por defeito)
     carregadorSTL.load('./modelos/STL/RoleteNivel.STL', (geo) => { 
         let mesh = new THREE.Mesh(geo, matMetalBrilhante); 
@@ -402,8 +415,11 @@ function iniciar3D() {
         let mesh = new THREE.Mesh(geo, matAcoEscuro); 
         let escalaRolete = diametroRoletePreto / 20; 
         mesh.scale.set(escalaRolete, 1, escalaRolete); 
-        mesh.position.set(distanciaRoletePreto, 0, 4); // 4 acima do rolete nível
-        grupoFerramenta.add(mesh); 
+        mesh.position.set(0, 0, 4); // X será fixado por posicionarRoletePreto()
+        grupoFerramenta.add(mesh);
+        meshRoletePreto = mesh;
+        // Posiciona-o já à distância correta para o rolete ativo selecionado
+        posicionarRoletePreto(getRoleteAtivoUI());
     });
 
     atualizarCenaCAD(); 
@@ -421,6 +437,24 @@ function animar() {
     requestAnimationFrame(animar);
     if(controlos) controlos.update(); 
     if(renderizador) renderizador.render(cena, camara); 
+}
+
+// Lê o rolete ativo selecionado no dropdown manual (cima/baixo). Defeito: 'baixo'.
+function getRoleteAtivoUI() {
+    const el = document.getElementById('input-rolete-ativo');
+    return (el && el.value === 'cima') ? 'cima' : 'baixo';
+}
+
+// Posiciona o rolete preto à distância geométrica de CONTACTO real com o arame,
+// em função do rolete nível ativo, do diâmetro do arame e do diâmetro do rolete preto:
+//   D = R_nivel_ativo + diametroArame + R_preto
+// Sem isto, o arame podia ser visualmente dobrado mesmo com o rolete preto fora de contacto.
+function posicionarRoletePreto(roleteAtivo) {
+    if (!meshRoletePreto) return;
+    let raioNivel = (roleteAtivo === 'cima') ? (diametroRoleteNivelCima / 2) : (diametroRoleteNivelBaixo / 2);
+    let novaDist = raioNivel + diametroArame + (diametroRoletePreto / 2);
+    meshRoletePreto.position.x = novaDist;
+    distanciaRoletePreto = novaDist;
 }
 
 // ==========================================
@@ -575,6 +609,10 @@ function atualizarCenaCAD() {
     grupoCarroFixo.position.y = 0;               
     grupoFerramenta.rotation.z = 0;               
     simRotBase = 0;
+
+    // Garante que em repouso o rolete preto já está à distância de contacto correta
+    // para o rolete selecionado no dropdown (feedback visual imediato).
+    posicionarRoletePreto(getRoleteAtivoUI());
 }
 
 function atualizarCenaSimulacaoFrame(cmdsFrame, posZ, posU, posY, posR, posZMaquina) {
@@ -692,6 +730,11 @@ async function simularPassoCNC(cmdTarget, memoriaAteAgora) {
         // O rolete de cima está fisicamente 8mm acima do rolete de baixo na montagem
         let alturaTrabalhoU = (cmdTarget.rolete === 'cima') ? window.ALTURA_ENCAIXE - 8 : window.ALTURA_ENCAIXE;
 
+        // Reposiciona o rolete preto para a distância geométrica de contacto
+        // real com o arame, dependente do rolete nível ativo. Garante que o rolete
+        // preto encosta efetivamente no arame durante a dobragem.
+        posicionarRoletePreto(cmdTarget.rolete);
+
         // 2. Posiciona R e Y
         if (Math.abs(targetR - simR) > 0 || Math.abs(startRotBase - simRotBase) > 0) {
             let steps = 15;
@@ -744,6 +787,9 @@ async function simularPassoCNC(cmdTarget, memoriaAteAgora) {
              atualizarCenaSimulacaoFrame(cmdsFrame, simZ, window.ALTURA_REPOUSO, simRotBase - (simRotBase * (i/15)), simR - (simR * (i/15)), simZ); await esperar(16);
         }
         simR = 0; simRotBase = 0;
+
+        // Restaura a posição do rolete preto para a distância do rolete ativo selecionado na UI
+        posicionarRoletePreto(getRoleteAtivoUI());
     }
 }
 
